@@ -11,7 +11,7 @@ pipeline {
     stages {
         stage("Git Checkout"){
             steps{
-                git branch: 'master', url: 'https://github.com/bhormohan/swapnillaptop'
+                git branch: 'master', url: 'https://github.com/DitissProject/petclinicproject.git'
             }
         }
      
