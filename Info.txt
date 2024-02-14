@@ -1,0 +1,3 @@
+In this project, we're implementing  DevSecOps to secure and deploy a automated  java web app for a pet clinic, which includes both user interface (Front end) and data management (Back end) components. We're hosting it on a AWS EC2 instance (t2 large) for smooth operation. We're securely hosting our app using a some of tools such as : GitHub for version control, Jenkins for CI/CD and automation, Maven for compiling/testing/building, SonarQube for quality checks, OWASP for dependency check, Docker for containerization, Trivy for image scanning and report , Kubernetes for container orchestration, and Tomcat for web hosting ,  an email system for updates.
+
+
