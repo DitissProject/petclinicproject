@@ -1,0 +1,144 @@
+pipeline {
+    agent any
+    tools{
+        jdk 'Jdk17'
+        maven 'maven24'
+    }
+    environment {
+        SCANNER_HOME=tool 'sonar-scanner'
+        PATH = "/usr/local/bin:$PATH"
+    }
+    stages {
+        stage("Git Checkout"){
+            steps{
+                git branch: 'master', url: 'https://github.com/bhormohan/swapnillaptop'
+            }
+        }
+     
+        stage("maven Compile"){
+            steps{
+           sh "cd ${WORKSPACE} && mvn clean compile"
+ 
+           
+            }
+        }
+        stage("maven Test"){
+            steps{
+                sh "mvn test"
+            }
+        }
+        stage("Sonarqube Analysis "){
+             options {
+        timeout(time: 1, unit: 'HOURS')  // Set the timeout to 1 hour, adjust as needed
+        }
+            steps{
+                withSonarQubeEnv('sonar-server') {
+                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=Petclinic \
+                    -Dsonar.java.binaries=. \
+                    -Dsonar.projectKey=Petclinic '''
+                }
+            }
+        }
+        stage("Build"){
+            steps{
+                sh " mvn clean install"
+            }
+        }
+        stage('OWASP FS SCAN') {
+            steps {
+                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DP-Check'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
+        }
+        stage("Docker Build & Push"){
+            steps{
+                script{
+                    sh 'docker image rm --force ditissproject2024/petclinic1'
+                    sh 'echo dckr_pat_UUI_ysiuAisCnN7T_1LYt8BJzaI  | docker login -u ditissproject2024 --password-stdin' 
+                    sh 'docker build -t ditissproject2024/petclinic1 .' 
+                    sh 'docker image push ditissproject2024/petclinic1 ' 
+                }
+            }
+        }
+        
+        stage("TRIVY"){
+            steps{
+                sh "trivy image ditissproject2024/petclinic1:latest > trivy.txt" 
+            }
+        }
+        stage ('Manual Approval'){
+          steps {
+           script {
+             timeout(time: 10, unit: 'MINUTES') {
+              def approvalMailContent = """
+              Project: ${env.JOB_NAME}
+              Build Number: ${env.BUILD_NUMBER}
+              Go to build URL and approve the deployment request.
+              URL de build: ${env.BUILD_URL}
+              """
+             mail(
+             to: 'ditissproject2024@gmail.com',
+             subject: "${currentBuild.result} CI: Project name -> ${env.JOB_NAME}", 
+             body: approvalMailContent,
+             mimeType: 'text/plain'
+             )
+            input(
+            id: "DeployGate",
+            message: "Deploy ${params.project_name}?",
+            submitter: "approver",
+            parameters: [choice(name: 'action', choices: ['Deploy'], description: 'Approve deployment')]
+            )
+             }
+           }
+          }
+        }
+        stage('Remove Existing Container'){
+            steps{
+                sh 'docker container rm --force pet1'
+            }
+        }
+        
+        stage('Deploy to conatiner'){
+            steps{
+                sh 'docker run -d --name pet1 -p 8082:8080 ditissproject2024/petclinic1:latest'
+            }
+        }
+        stage("Deploy To Tomcat"){
+            steps{
+                 sh "sudo -n cp /var/lib/jenkins/workspace/project/target/petclinic.war /opt/apache-tomcat-9.0.65/webapps/"
+            }
+        }
+        stage('Deploying App to Kubernetes') {
+            steps {
+                    withCredentials([file(credentialsId: 'mykubeconfig', variable: 'KUBECONFIG')]) {
+                        sh "minikube kubectl -- apply -f try2.yaml --kubeconfig=${KUBECONFIG}"
+                    }
+                }
+            }
+        stage("OWASP ZAP"){
+            steps{
+                script{
+                    sh '/snap/bin/zaproxy -daemon -host 127.0.0.1 -port 8090 -config api.disablekey=true'
+                    sh 'curl http://localhost:8090/JSON/spider/action/scan/?url=http://192.168.49.2:31398/petclinic/'
+                    sh 'curl http://localhost:8090/JSON/ascan/action/scan/?url=http://192.168.49.2:31398/petclinic/&recurse=true'
+                    sh 'curl http://localhost:8090/OTHER/core/other/htmlreport/ > zapReport.html'
+ 
+                }
+            }
+        }
+            
+        }  
+        
+    post {
+            always {
+                emailext attachmentsPattern: 'trivy.txt, zapReport.html', body: "Project: ${env.JOB_NAME}<br/>" +
+                        "Build Number: ${env.BUILD_NUMBER}<br/>" +
+                        "URL: ${env.BUILD_URL}<br/>",
+                        subject: "'${currentBuild.result}'",
+                        mimeType: 'text/plain', to: 'ditissproject2024@gmail.com'
+                
+            } 
+        
+    }
+        
+    }
